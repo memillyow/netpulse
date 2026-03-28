@@ -1,0 +1,11 @@
+.venv/
+cdk.out/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+aws/
+awscliv2.zip
+*.egg-info/
+.aws-sam/
+node_modules/
