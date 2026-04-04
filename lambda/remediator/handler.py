@@ -17,10 +17,7 @@ import urllib.error
 import boto3
 from datetime import datetime, timezone
 
-
-# ------------------------------------------------------------------ #
-# Clients                                                             #
-# ------------------------------------------------------------------ #
+# clients initialized outside handler for Lambda container reuse
 dynamodb = boto3.resource("dynamodb")
 sns_client = boto3.client("sns")
 
@@ -30,10 +27,6 @@ LATENCY_THRESHOLD_MS = int(os.environ.get("LATENCY_THRESHOLD_MS", "2000"))
 
 table = dynamodb.Table(INCIDENTS_TABLE)
 
-
-# ------------------------------------------------------------------ #
-# Action handlers                                                     #
-# ------------------------------------------------------------------ #
 
 def handle_retry(incident: dict) -> dict:
     """
@@ -53,7 +46,7 @@ def handle_retry(incident: dict) -> dict:
     except Exception:
         recovered = False
 
-    # Increment attempt counter
+    # increment attempt counter regardless of outcome
     table.update_item(
         Key={
             "incident_id": incident["incident_id"],
@@ -76,15 +69,10 @@ def handle_reroute(incident: dict) -> dict:
     Simulates rerouting traffic away from the degraded endpoint.
     In a real system this would update a Route53 record, ALB target group,
     or a config store that your load balancer reads.
-
-    For NetPulse Core we record the reroute action in DynamoDB and
-    return success — swap this out with real routing logic when you
-    extend the project.
     """
     endpoint = incident["endpoint"]
     print(f"[REROUTE] Simulating traffic reroute away from {endpoint}")
 
-    # Simulate reroute decision time
     time.sleep(0.5)
 
     table.update_item(
@@ -172,10 +160,6 @@ def handle_resolve(incident: dict) -> dict:
     return {"status": "RESOLVED", "incident_id": incident_id, "resolved_at": resolved_at}
 
 
-# ------------------------------------------------------------------ #
-# Helpers                                                             #
-# ------------------------------------------------------------------ #
-
 def _get_timestamp(incident_id: str) -> str:
     """
     Fallback: queries DynamoDB for the timestamp of an incident by ID.
@@ -189,10 +173,8 @@ def _get_timestamp(incident_id: str) -> str:
     return items[0]["timestamp"] if items else datetime.now(timezone.utc).isoformat()
 
 
-# ------------------------------------------------------------------ #
-# Handler                                                             #
-# ------------------------------------------------------------------ #
-
+# action dispatcher — maps action strings to handler functions
+# makes it easy to add new actions without touching the main handler
 ACTIONS = {
     "RETRY": handle_retry,
     "REROUTE": handle_reroute,
@@ -207,7 +189,7 @@ def lambda_handler(event, context):
     the 'action' field in the event passed by Step Functions.
     """
     action = event.get("action")
-    incident = event.get("incident", event)  # Step Functions wraps payload
+    incident = event.get("incident", event)
 
     print(f"[REMEDIATOR] Action={action} IncidentID={incident.get('incident_id')}")
 
