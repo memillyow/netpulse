@@ -14,10 +14,8 @@ import urllib.error
 import boto3
 from datetime import datetime, timezone
 
-
-# ------------------------------------------------------------------ #
-# Clients (initialised outside handler for Lambda container reuse)    #
-# ------------------------------------------------------------------ #
+# clients are initialized outside the handler to take advantage of
+# Lambda container reuse — avoids reconnecting on every invocation
 dynamodb = boto3.resource("dynamodb")
 sfn_client = boto3.client("stepfunctions")
 
@@ -28,10 +26,6 @@ LATENCY_THRESHOLD_MS = int(os.environ.get("LATENCY_THRESHOLD_MS", "2000"))
 
 table = dynamodb.Table(INCIDENTS_TABLE)
 
-
-# ------------------------------------------------------------------ #
-# Helpers                                                             #
-# ------------------------------------------------------------------ #
 
 def probe_endpoint(url: str) -> dict:
     """
@@ -45,6 +39,7 @@ def probe_endpoint(url: str) -> dict:
         with urllib.request.urlopen(req, timeout=10) as response:
             latency_ms = int((time.monotonic() - start) * 1000)
             status_code = response.status
+            # treat anything 5xx or over latency threshold as unhealthy
             healthy = status_code < 500 and latency_ms < LATENCY_THRESHOLD_MS
             return {
                 "url": url,
@@ -109,6 +104,7 @@ def write_incident(probe_result: dict) -> str:
 def trigger_remediation(incident_id: str, probe_result: dict) -> None:
     """
     Starts a Step Functions execution for this incident.
+    Execution name includes timestamp to avoid conflicts on rapid retriggers.
     """
     execution_input = {
         "incident_id": incident_id,
@@ -125,10 +121,6 @@ def trigger_remediation(incident_id: str, probe_result: dict) -> None:
     )
     print(f"[STATE MACHINE STARTED] execution: {response['executionArn']}")
 
-
-# ------------------------------------------------------------------ #
-# Handler                                                             #
-# ------------------------------------------------------------------ #
 
 def lambda_handler(event, context):
     """
@@ -160,6 +152,7 @@ def lambda_handler(event, context):
             trigger_remediation(incident_id, probe)
             results["incidents"].append(incident_id)
 
+    # log summary so we can track probe results in CloudWatch
     print(
         f"[DETECTOR COMPLETE] "
         f"probed={results['probed']} "
