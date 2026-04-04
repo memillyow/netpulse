@@ -203,7 +203,7 @@ class NetPulseStack(Stack):
         incidents_table.grant_read_write_data(detector_fn)
         state_machine.grant_start_execution(detector_fn)
 
-        # Run detector every 1 minute
+        # EventBridge decouples the schedule from the Lambda — easy to pause or swap target without touching detector code
         rule = events.Rule(
             self,
             "DetectorSchedule",
